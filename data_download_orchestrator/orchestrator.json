@@ -1,0 +1,150 @@
+{
+  "Comment": "motobi monthly CEPIK snapshot pipeline (sequential, atomic swap, 1 worker per full snapshot)",
+  "StartAt": "Plan Snapshot",
+  "States": {
+    "Plan Snapshot": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-plan-snapshot",
+      "OutputPath": "$.plan",
+      "Next": "Run Single Full Snapshot Worker"
+    },
+    "Run Single Full Snapshot Worker": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
+      "Parameters": {
+        "Cluster.$": "$.cluster",
+        "TaskDefinition.$": "$.task_definition",
+        "LaunchType": "FARGATE",
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name.$": "$.container_name",
+              "Environment": [
+                {
+                  "Name": "SNAPSHOT_DATE",
+                  "Value.$": "$.snapshot_date"
+                },
+                {
+                  "Name": "S3_BUCKET",
+                  "Value.$": "$.s3_bucket"
+                },
+                {
+                  "Name": "S3_PREFIX",
+                  "Value.$": "$.s3_prefix"
+                },
+                {
+                  "Name": "YEARS",
+                  "Value.$": "States.Format('{}-{}', $.year_start, $.year_end)"
+                },
+                {
+                  "Name": "MONTH_START",
+                  "Value.$": "States.Format('{}', $.month_start)"
+                },
+                {
+                  "Name": "MONTH_END",
+                  "Value.$": "States.Format('{}', $.month_end)"
+                },
+                {
+                  "Name": "TYP_DATY",
+                  "Value": "2"
+                },
+                {
+                  "Name": "WORKER_ID",
+                  "Value": "0"
+                }
+              ]
+            }
+          ]
+        },
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": [
+              "subnet-02f606cfbce7c8ad5",
+              "subnet-03e41f6d299ddaeb7",
+              "subnet-02ba61066d31c18a8"
+            ],
+            "SecurityGroups": [
+              "sg-0eaa5086409f252b8"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Publish RAW"
+    },
+    "Publish RAW": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-publish-latest-raw",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date",
+          "s3_bucket.$": "$.s3_bucket",
+          "s3_prefix.$": "$.s3_prefix"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Build PROD"
+    },
+    "Build PROD": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-build-prod-latest",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date"
+        }
+      },
+      "ResultPath": null,
+      "Next": "QA Validate"
+    },
+    "QA Validate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-qa-validate",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date",
+          "s3_bucket.$": "$.s3_bucket",
+          "s3_prefix.$": "$.s3_prefix"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Repair RAW Archive"
+    },
+    "Repair RAW Archive": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-repair-raw-archive",
+        "Payload": {}
+      },
+      "ResultPath": null,
+      "Next": "Build Snapshot Trend"
+    },
+    "Build Snapshot Trend": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-build-snapshot-trend",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Send Notification"
+    },
+    "Send Notification": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-notify",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date"
+        }
+      },
+      "End": true
+    }
+  }
+}
