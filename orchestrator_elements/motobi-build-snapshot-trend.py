@@ -1,22 +1,34 @@
-import boto3
-import time
+import json
 import logging
 import os
-import json
+import time
+
+import boto3
 
 athena = boto3.client("athena")
 
 # ===== CONFIG =====
-DATABASE = "motobi_cepik_hist"
-TREND_TABLE = "motobi_prod_snapshot_trend"
-RAW_TABLE = "raw_archive"
-
-ATHENA_OUTPUT = "s3://motointel-cepik-raw-prod/athena/results/"
+DATABASE = os.getenv("ATHENA_DATABASE", "motobi_cepik_hist")
+TREND_TABLE = os.getenv("TREND_TABLE", "motobi_prod_snapshot_trend")
+RAW_TABLE = os.getenv("RAW_TABLE", "raw_archive")
+ATHENA_OUTPUT = os.getenv("ATHENA_OUTPUT", "s3://motointel-cepik-raw-prod/athena/results/")
 POLL_INTERVAL_SEC = float(os.getenv("ATHENA_POLL_INTERVAL_SEC", "2"))
 ATHENA_TIMEOUT_SEC = int(os.getenv("ATHENA_TIMEOUT_SEC", "3600"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _start_query(sql: str) -> str:
+    params = {
+        "QueryString": sql,
+        "QueryExecutionContext": {"Database": DATABASE},
+    }
+    if ATHENA_OUTPUT:
+        params["ResultConfiguration"] = {"OutputLocation": ATHENA_OUTPUT}
+
+    q = athena.start_query_execution(**params)
+    return q["QueryExecutionId"]
 
 
 # ----------------------------------------------------------
@@ -42,13 +54,7 @@ def wait_for_query(qid: str, timeout_sec: int = ATHENA_TIMEOUT_SEC) -> str:
 
 def run_athena(sql: str) -> str:
     logger.info(f"Running Athena query:\n{sql}")
-
-    q = athena.start_query_execution(
-        QueryString=sql,
-        QueryExecutionContext={"Database": DATABASE},
-    )
-
-    qid = q["QueryExecutionId"]
+    qid = _start_query(sql)
     wait_for_query(qid)
     logger.info(f"Athena query succeeded, qid={qid}")
     return qid
@@ -70,11 +76,7 @@ def build_snapshot_trend(snapshot_date: str) -> dict:
     LIMIT 1
     """
 
-    q = athena.start_query_execution(
-        QueryString=check_sql,
-        QueryExecutionContext={"Database": DATABASE},
-    )
-    qid = q["QueryExecutionId"]
+    qid = _start_query(check_sql)
     wait_for_query(qid)
 
     rows = athena.get_query_results(QueryExecutionId=qid)["ResultSet"]["Rows"]
