@@ -111,6 +111,18 @@
         }
       },
       "ResultPath": null,
+      "Next": "Refresh DIM Brand"
+    },
+    "Refresh DIM Brand": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-refresh-dim-brand",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date"
+        }
+      },
+      "ResultPath": null,
       "Next": "Repair RAW Archive"
     },
     "Repair RAW Archive": {
