@@ -42,6 +42,7 @@ def fetch_single_number(sql: str) -> int:
     rows = res.get("ResultSet", {}).get("Rows", [])
     if len(rows) < 2:
         return 0
+
     data_row = rows[1].get("Data", [])
     if not data_row:
         return 0
@@ -58,10 +59,7 @@ def lambda_handler(event, context):
     snapshot_date = (event or {}).get("snapshot_date") or datetime.utcnow().strftime("%Y-%m-%d-%H%M")
     logger.info(f"🔁 Refresh DIM brand for snapshot_date={snapshot_date}")
 
-    # Ensure latest RAW partitions are visible before rebuilding DIM.
-    run_athena(f"MSCK REPAIR TABLE {RAW_TABLE}")
-
-    # Rebuild DIM table atomically from latest RAW snapshot.
+    # Rebuild DIM table from latest RAW snapshot.
     run_athena(f"DROP TABLE IF EXISTS {DIM_BRAND_TABLE}")
 
     sql = f"""
