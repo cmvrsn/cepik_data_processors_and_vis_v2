@@ -11,15 +11,21 @@ Ten dokument opisuje, co robi każdy stan w state machine (`orchestrator.json`) 
 6. Refresh DIM Brand
 7. Repair RAW Archive
 8. Build Snapshot Trend
-9. Send Notification
+9. Build Top Brand MoM
+10. Send Notification
 
 ## Krótkie podsumowanie procesu
-Pipeline buduje pełny snapshot RAW z CEPIK, publikuje go jako „latest”, tworzy tabelę PROD, wykonuje walidację QA, odświeża wymiar brand/model, rejestruje partycje archiwum historycznego, buduje trend miesięczny i na końcu wysyła notyfikację e-mail.
+Pipeline buduje pełny snapshot RAW z CEPIK, publikuje go jako „latest”, tworzy tabelę PROD, wykonuje walidację QA, odświeża wymiar brand/model, rejestruje partycje archiwum historycznego, buduje trend miesięczny i agregat MoM dla top marek, a na końcu wysyła notyfikację e-mail.
 
-## Uzasadnienie nowego kroku `Refresh DIM Brand`
+## Uzasadnienie kroku `Refresh DIM Brand`
 - Dashboard korzysta z tabeli `motobi_cepik.dim_brand` dla filtrów brand/model.
 - Odświeżenie po `QA Validate` zapewnia spójność z już zbudowaną i zwalidowaną warstwą `latest`.
 - Krok przebudowuje `dim_brand` z `motobi_raw_latest` jako `SELECT DISTINCT marka AS brand, model`.
+
+## Uzasadnienie kroku `Build Top Brand MoM`
+- Pasek top marek w dashboardzie potrzebuje gotowych metryk `vehicle_count`, `mom_delta_abs`, `mom_delta_pct` dla najnowszego snapshotu.
+- MoM jest liczony względem poprzedniego snapshotu wyznaczanego z `raw_archive`.
+- Krok uruchamiamy po `Repair RAW Archive`, aby nowy snapshot był już zarejestrowany jako partycje w warstwie historycznej.
 
 ## Double-check innych DIM
 - `dim_region` jest używana jako słownik województw/powiatów i nie jest wyliczana dynamicznie z aktualnego snapshotu.
