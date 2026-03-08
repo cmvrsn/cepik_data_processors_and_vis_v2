@@ -71,6 +71,21 @@
         }
       },
       "ResultPath": null,
+      "Next": "Clear RAW Partitions (Workaround)"
+    },
+    "Clear RAW Partitions (Workaround)": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-clear-raw-partitions",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date",
+          "s3_bucket.$": "$.s3_bucket",
+          "s3_prefix.$": "$.s3_prefix",
+          "partitions_to_clear.$": "$.partitions_to_clear"
+        }
+      },
+      "ResultPath": null,
       "Next": "Publish RAW"
     },
     "Publish RAW": {
@@ -108,6 +123,18 @@
           "snapshot_date.$": "$.snapshot_date",
           "s3_bucket.$": "$.s3_bucket",
           "s3_prefix.$": "$.s3_prefix"
+        }
+      },
+      "ResultPath": null,
+      "Next": "Refresh DIM Brand"
+    },
+    "Refresh DIM Brand": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-refresh-dim-brand",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date"
         }
       },
       "ResultPath": null,
@@ -169,6 +196,18 @@
             ],
             "AssignPublicIp": "ENABLED"
           }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Build Top Brand MoM"
+    },
+    "Build Top Brand MoM": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-build-top-brand-mom",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date"
         }
       },
       "ResultPath": null,

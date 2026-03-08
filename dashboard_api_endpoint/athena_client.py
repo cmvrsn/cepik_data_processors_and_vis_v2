@@ -18,6 +18,9 @@ DIM_BRAND_TABLE = "motobi_cepik.dim_brand"
 DIM_METADATA_TABLE = "motobi_cepik.dim_metadata"
 DIM_VEHICLE_SUBTYPE_TABLE = "motobi_cepik.dim_vehicle_subtype"
 
+
+TOP_BRAND_MOM_TABLE = "motobi_cepik_hist.top_brand_mom_snapshot"
+
 # ====== POPULACJA ======
 POP_TABLE = "motobi_cepik.population"
 POP_VOIV_COL = "wojewodztwo"
@@ -928,6 +931,34 @@ def load_region_top_models(filters: Dict) -> pd.DataFrame:
         return df
     df["total_count"] = pd.to_numeric(df["total_count"], errors="coerce")
     return df
+
+def load_top_brands_mom_latest() -> pd.DataFrame:
+    sql = f"""
+    WITH latest AS (
+        SELECT MAX(snapshot_date) AS snapshot_date
+        FROM {TOP_BRAND_MOM_TABLE}
+    )
+    SELECT
+        t.brand,
+        t.snapshot_date,
+        t.vehicle_count,
+        t.mom_delta_abs,
+        t.mom_delta_pct
+    FROM {TOP_BRAND_MOM_TABLE} t
+    JOIN latest l
+      ON t.snapshot_date = l.snapshot_date
+    ORDER BY t.vehicle_count DESC, t.brand ASC
+    """
+    qid = run_athena_query(sql)
+    df = fetch_athena_result_as_df(qid)
+    if df.empty:
+        return df
+
+    for col in ("vehicle_count", "mom_delta_abs", "mom_delta_pct"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
 
 # ============================================
 #    INDEX vs PL (100=PL) – trend

@@ -18,6 +18,7 @@ from athena_client import (
     load_region_origin_trend,
     load_region_top_brands,
     load_region_top_models,
+    load_top_brands_mom_latest,
     load_region_representation_index,
     load_map_region_summary,
     run_athena_query,
@@ -154,6 +155,10 @@ def route_request(event: dict) -> Tuple[int, Any]:
     if method == "POST" and raw_path == "/region/top-models":
         filters = _parse_json_body(event)
         df = load_region_top_models(filters)
+        return 200, dataframe_to_records(df)
+
+    if method == "GET" and raw_path == "/region/top-brands/mom/latest":
+        df = load_top_brands_mom_latest()
         return 200, dataframe_to_records(df)
 
     if method == "POST" and raw_path == "/region/representation-index":
