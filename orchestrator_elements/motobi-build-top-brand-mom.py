@@ -14,17 +14,26 @@ POLL_INTERVAL_SEC = float(os.getenv("ATHENA_POLL_INTERVAL_SEC", "2"))
 ATHENA_TIMEOUT_SEC = int(os.getenv("ATHENA_TIMEOUT_SEC", "3600"))
 
 TRACKED_BRANDS = [
-    "Toyota",
-    "Volkswagen",
-    "Škoda",
+    "VOLKSWAGEN",
+    "OPEL",
+    "TOYOTA",
+    "FORD",
+    "AUDI",
+    "SKODA",
+    "RENAULT",
     "BMW",
-    "Mercedes",
-    "Ford",
-    "Opel",
-    "Honda",
-    "Tesla",
+    "PEUGEOT",
+    "MERCEDES-BENZ",
+    "HONDA",
+    "HYUNDAI",
+    "FIAT",
+    "KIA",
+    "CITROEN",
+    "SEAT",
+    "VOLVO",
+    "NISSAN",
+    "TESLA",
     "BYD",
-    "Peugeot",
 ]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
