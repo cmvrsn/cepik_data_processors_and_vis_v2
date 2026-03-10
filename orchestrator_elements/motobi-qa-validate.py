@@ -59,18 +59,7 @@ def lambda_handler(event, context):
     snapshot_date = (event or {}).get("snapshot_date") or datetime.utcnow().strftime("%Y-%m")
     logger.info(f"🔎 QA Validate for snapshot_date={snapshot_date}")
 
-    # 1) Napraw partycje RAW / PROD na wszelki wypadek
-    try:
-        run_athena("MSCK REPAIR TABLE motobi_raw_latest")
-    except Exception as e:
-        logger.warning(f"MSCK RAW failed: {e}")
-
-    try:
-        run_athena("MSCK REPAIR TABLE motobi_prod_latest")
-    except Exception as e:
-        logger.warning(f"MSCK PROD failed: {e}")
-
-    # 2) Policz rekordy RAW
+    # 1) Policz rekordy RAW
     sql_count_raw = """
         SELECT COUNT(*) AS cnt
         FROM motobi_raw_latest
@@ -78,7 +67,7 @@ def lambda_handler(event, context):
     raw_count = fetch_single_number(sql_count_raw)
     logger.info(f"[QA] RAW total rows = {raw_count}")
 
-    # 3) Policz sumę total_count w PROD
+    # 2) Policz sumę total_count w PROD
     sql_count_prod = """
         SELECT COALESCE(SUM(total_count), 0) AS cnt
         FROM motobi_prod_latest
@@ -86,14 +75,14 @@ def lambda_handler(event, context):
     prod_count = fetch_single_number(sql_count_prod)
     logger.info(f"[QA] PROD total_count sum = {prod_count}")
 
-    # 4) Prosta różnica / ratio
+    # 3) Prosta różnica / ratio
     diff = raw_count - prod_count
     ratio = (prod_count / raw_count) if raw_count > 0 else 0.0
 
     logger.info(f"[QA] diff = RAW - PROD = {diff}")
     logger.info(f"[QA] ratio = PROD / RAW = {ratio:.4f}")
 
-    # 5) Możesz tu dodać progi alarmowe, np.:
+    # 4) Możesz tu dodać progi alarmowe, np.:
     # if raw_count > 0 and ratio < 0.90:
     #     logger.warning("[QA] Ratio PROD/RAW < 0.9 – potencjalny problem z agregacją")
 

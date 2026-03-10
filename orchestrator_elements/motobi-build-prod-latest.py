@@ -1,20 +1,23 @@
 import boto3
 import time
 import logging
+import os
+import json
 from datetime import datetime
 
 athena = boto3.client("athena")
 s3 = boto3.client("s3")
 
 # ===== CONFIG =====
-DATABASE    = "motobi_cepik"
+DATABASE = "motobi_cepik"
 
-RAW_TABLE   = "motobi_raw_latest"
-PROD_TABLE  = "motobi_prod_latest"
+RAW_TABLE = "motobi_raw_latest"
+PROD_TABLE = "motobi_prod_latest"
 
 # 🚀 TO JEST WŁAŚCIWE MIEJSCE PRODUKCJI
 PROD_PREFIX = "prod-data/latest/"
 PROD_S3 = "s3://motointel-cepik-raw-prod/prod-data/latest/"
+ATHENA_WORKGROUP = os.getenv("ATHENA_WORKGROUP", "motobi-etl")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -24,12 +27,12 @@ logger = logging.getLogger(__name__)
 #  ATHENA RUN
 # ----------------------------------------------------------
 def run_athena(sql: str) -> str:
-    logger.info(f"Running Athena query:\n{sql}")
-    
+    logger.info(f"Running Athena query on workgroup='{ATHENA_WORKGROUP}':\n{sql}")
+
     q = athena.start_query_execution(
         QueryString=sql,
         QueryExecutionContext={"Database": DATABASE},
-        # ❌ ResultConfiguration USUNIĘTE
+        WorkGroup=ATHENA_WORKGROUP,
     )
     qid = q["QueryExecutionId"]
 
@@ -46,6 +49,7 @@ def run_athena(sql: str) -> str:
 
     logger.info(f"Athena state={state}, qid={qid}")
     return qid
+
 
 # ----------------------------------------------------------
 #  CLEANUP S3 PREFIX
@@ -76,12 +80,7 @@ def delete_prefix(bucket: str, prefix: str) -> int:
     return deleted
 
 
-# ----------------------------------------------------------
-#  MAIN LAMBDA
-# ----------------------------------------------------------
-def lambda_handler(event, context):
-    snapshot_date = (event or {}).get("snapshot_date") or datetime.utcnow().strftime("%Y-%m-%d-%H%M")
-
+def build_prod(snapshot_date: str) -> dict:
     logger.info(f"🏗️ Build PROD for snapshot_date={snapshot_date}")
     logger.info(f"RAW TABLE  : {RAW_TABLE}")
     logger.info(f"PROD TABLE : {PROD_TABLE}")
@@ -188,5 +187,29 @@ def lambda_handler(event, context):
     logger.info("✅ PROD build completed successfully.")
     return {
         "status": "SUCCESS",
-        "snapshot_date": snapshot_date
+        "snapshot_date": snapshot_date,
+        "athena_workgroup": ATHENA_WORKGROUP,
     }
+
+
+# ----------------------------------------------------------
+#  HANDLERS
+# ----------------------------------------------------------
+def lambda_handler(event, context):
+    snapshot_date = (event or {}).get("snapshot_date") or datetime.utcnow().strftime("%Y-%m-%d-%H%M")
+    return build_prod(snapshot_date)
+
+
+def main() -> int:
+    """
+    ECS entrypoint.
+    Optional env: SNAPSHOT_DATE (e.g. 2025-01-15-1200)
+    """
+    snapshot_date = os.getenv("SNAPSHOT_DATE", "").strip() or datetime.utcnow().strftime("%Y-%m-%d-%H%M")
+    result = build_prod(snapshot_date)
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
