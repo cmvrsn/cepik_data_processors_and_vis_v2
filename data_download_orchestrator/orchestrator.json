@@ -212,7 +212,7 @@
         "Overrides": {
           "ContainerOverrides": [
             {
-              "Name": "motobi-trend-builder",
+              "Name": "trend-builder",
               "Environment": [
                 {
                   "Name": "SNAPSHOT_DATE",
@@ -243,7 +243,7 @@
       "Type": "Task",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-build-top-brand-mom",
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-build-top-brands-mom",
         "Payload": {
           "snapshot_date.$": "$.snapshot_date"
         }
