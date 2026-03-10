@@ -112,7 +112,7 @@
         "Overrides": {
           "ContainerOverrides": [
             {
-              "Name": "motobi-build-prod-latest",
+              "Name": "motobi-build-prod",
               "Environment": [
                 {
                   "Name": "SNAPSHOT_DATE",
