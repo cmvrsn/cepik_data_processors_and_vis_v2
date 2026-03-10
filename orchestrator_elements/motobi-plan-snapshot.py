@@ -32,6 +32,7 @@ def lambda_handler(event, context):
     plan = {
         "snapshot_date": snapshot_date,
         "years": years,
+        "partitions_to_clear": [],
 
         # kluczowe → dla Step Functions
         "year_start": start_year,
