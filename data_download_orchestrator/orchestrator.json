@@ -188,7 +188,7 @@
         "Overrides": {
           "ContainerOverrides": [
             {
-              "Name": "motobi-repair-raw-archive",
+              "Name": "repair-raw-archive",
               "Environment": [
                 {
                   "Name": "SNAPSHOT_DATE",
