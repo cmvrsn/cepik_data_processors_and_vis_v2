@@ -184,6 +184,19 @@
             ],
             "AssignPublicIp": "ENABLED"
           }
+        },
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "motobi-repair-raw-archive",
+              "Environment": [
+                {
+                  "Name": "SNAPSHOT_DATE",
+                  "Value.$": "$.snapshot_date"
+                }
+              ]
+            }
+          ]
         }
       },
       "ResultPath": null,
