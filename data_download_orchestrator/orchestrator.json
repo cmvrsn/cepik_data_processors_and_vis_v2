@@ -104,11 +104,36 @@
     },
     "Build PROD": {
       "Type": "Task",
-      "Resource": "arn:aws:states:::lambda:invoke",
+      "Resource": "arn:aws:states:::ecs:runTask.sync",
       "Parameters": {
-        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-build-prod-latest",
-        "Payload": {
-          "snapshot_date.$": "$.snapshot_date"
+        "Cluster": "arn:aws:ecs:eu-north-1:976193233554:cluster/motointel-cepik",
+        "TaskDefinition": "arn:aws:ecs:eu-north-1:976193233554:task-definition/motobi-build-prod-latest:1",
+        "LaunchType": "FARGATE",
+        "Overrides": {
+          "ContainerOverrides": [
+            {
+              "Name": "motobi-build-prod-latest",
+              "Environment": [
+                {
+                  "Name": "SNAPSHOT_DATE",
+                  "Value.$": "$.snapshot_date"
+                }
+              ]
+            }
+          ]
+        },
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "Subnets": [
+              "subnet-02f606cfbce7c8ad5",
+              "subnet-03e41f6d299ddaeb7",
+              "subnet-02ba61066d31c18a8"
+            ],
+            "SecurityGroups": [
+              "sg-0eaa5086409f252b8"
+            ],
+            "AssignPublicIp": "ENABLED"
+          }
         }
       },
       "ResultPath": null,
