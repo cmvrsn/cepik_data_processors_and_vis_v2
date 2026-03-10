@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 
 athena = boto3.client("athena")
+s3 = boto3.client("s3")
 
 DATABASE = "motobi_cepik"
 RAW_TABLE = "motobi_raw_latest"
@@ -14,6 +15,37 @@ ATHENA_WORKGROUP = os.getenv("ATHENA_WORKGROUP", "motobi-etl")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def parse_s3_uri(uri: str) -> tuple[str, str]:
+    if not uri.startswith("s3://"):
+        raise ValueError(f"Invalid S3 URI: {uri}")
+    rest = uri[5:]
+    bucket, _, key = rest.partition("/")
+    return bucket, key
+
+
+def delete_prefix(bucket: str, prefix: str) -> int:
+    paginator = s3.get_paginator("list_objects_v2")
+    pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+
+    to_delete = []
+    for page in pages:
+        for obj in page.get("Contents", []):
+            to_delete.append({"Key": obj["Key"]})
+
+    if not to_delete:
+        logger.info(f"[DIM_BRAND] no objects to delete under s3://{bucket}/{prefix}")
+        return 0
+
+    deleted = 0
+    for i in range(0, len(to_delete), 1000):
+        batch = to_delete[i:i + 1000]
+        resp = s3.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+        deleted += len(resp.get("Deleted", []))
+
+    logger.info(f"[DIM_BRAND] deleted {deleted} objects under s3://{bucket}/{prefix}")
+    return deleted
 
 
 def run_athena(sql: str) -> str:
@@ -66,6 +98,9 @@ def lambda_handler(event, context):
 
     # Rebuild DIM table from latest RAW snapshot.
     run_athena(f"DROP TABLE IF EXISTS {DIM_BRAND_TABLE}")
+
+    dim_bucket, dim_prefix = parse_s3_uri(DIM_BRAND_S3)
+    delete_prefix(dim_bucket, dim_prefix)
 
     sql = f"""
     CREATE TABLE {DIM_BRAND_TABLE}
