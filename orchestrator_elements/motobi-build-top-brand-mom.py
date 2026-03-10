@@ -10,6 +10,9 @@ DATABASE = "motobi_cepik_hist"
 RAW_TABLE = "raw_archive"
 TOP_BRAND_MOM_TABLE = "top_brand_mom_snapshot"
 
+# wymuszamy workgroup z Managed Results
+ATHENA_WORKGROUP = os.getenv("ATHENA_WORKGROUP", "primary")
+
 POLL_INTERVAL_SEC = float(os.getenv("ATHENA_POLL_INTERVAL_SEC", "2"))
 ATHENA_TIMEOUT_SEC = int(os.getenv("ATHENA_TIMEOUT_SEC", "3600"))
 
@@ -59,10 +62,11 @@ def wait_for_query(qid: str, timeout_sec: int = ATHENA_TIMEOUT_SEC) -> str:
 
 
 def run_athena(sql: str) -> str:
-    logger.info(f"Running Athena query:\n{sql}")
+    logger.info(f"Running Athena query on workgroup='{ATHENA_WORKGROUP}':\n{sql}")
     q = athena.start_query_execution(
         QueryString=sql,
         QueryExecutionContext={"Database": DATABASE},
+        WorkGroup=ATHENA_WORKGROUP,
     )
     qid = q["QueryExecutionId"]
     wait_for_query(qid)
