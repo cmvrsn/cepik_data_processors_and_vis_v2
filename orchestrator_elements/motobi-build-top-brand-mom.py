@@ -3,17 +3,21 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
+from decimal import Decimal
 
 athena = boto3.client("athena")
+dynamodb = boto3.resource("dynamodb")
 
 DATABASE = "motobi_cepik_hist"
 RAW_TABLE = "raw_archive"
-TOP_BRAND_MOM_TABLE = "top_brand_mom_snapshot"
 
 # Domyślnie używamy user-managed WG (obsługuje INSERT/CTAS dla tej lambdy).
 ATHENA_WORKGROUP = os.getenv("ATHENA_WORKGROUP", "motobi-etl")
 # Fallback na wypadek uruchomienia z WG z Managed Results.
 ATHENA_FALLBACK_WORKGROUP = os.getenv("ATHENA_FALLBACK_WORKGROUP", "motobi-etl")
+
+DDB_TABLE = os.getenv("TOP_BRAND_MOM_DDB_TABLE", "motobi_top_brand_mom")
 
 POLL_INTERVAL_SEC = float(os.getenv("ATHENA_POLL_INTERVAL_SEC", "2"))
 ATHENA_TIMEOUT_SEC = int(os.getenv("ATHENA_TIMEOUT_SEC", "3600"))
@@ -100,127 +104,161 @@ def run_athena(sql: str) -> str:
     return qid
 
 
-def table_exists() -> bool:
-    qid = run_athena(f"SHOW TABLES IN {DATABASE} LIKE '{TOP_BRAND_MOM_TABLE}'")
+def get_query_rows(qid: str):
     rows = athena.get_query_results(QueryExecutionId=qid)["ResultSet"]["Rows"]
-    return len(rows) > 1
+    if len(rows) <= 1:
+        return []
+
+    headers = [c.get("VarCharValue", "") for c in rows[0].get("Data", [])]
+    parsed_rows = []
+
+    for row in rows[1:]:
+        vals = [c.get("VarCharValue") for c in row.get("Data", [])]
+        parsed_rows.append(dict(zip(headers, vals)))
+
+    return parsed_rows
 
 
-def snapshot_already_processed(snapshot_date: str) -> bool:
+def month_shift(month_yyyy_mm: str, delta: int) -> str:
+    dt = datetime.strptime(month_yyyy_mm + "-01", "%Y-%m-%d")
+    month_index = dt.year * 12 + (dt.month - 1) + delta
+    year = month_index // 12
+    month = (month_index % 12) + 1
+    return f"{year:04d}-{month:02d}"
+
+
+def get_prev_snapshot(snapshot_date: str) -> str:
     qid = run_athena(
         f"""
-        SELECT 1
-        FROM {TOP_BRAND_MOM_TABLE}
-        WHERE snapshot_date = '{snapshot_date}'
-        LIMIT 1
-        """
-    )
-    rows = athena.get_query_results(QueryExecutionId=qid)["ResultSet"]["Rows"]
-    return len(rows) > 1
-
-
-def select_rows_sql(snapshot_date: str) -> str:
-    brands_values = ",\n            ".join(f"('{brand}')" for brand in TRACKED_BRANDS)
-
-    return f"""
-    WITH
-    brand_whitelist AS (
-        SELECT * FROM (
-            VALUES
-            {brands_values}
-        ) AS t(brand)
-    ),
-    prev_snapshot AS (
         SELECT MAX(snapshot_date) AS prev_snapshot_date
         FROM {RAW_TABLE}
         WHERE snapshot_date < '{snapshot_date}'
-    ),
-    current_counts AS (
-        SELECT
-            marka AS brand,
-            COUNT(DISTINCT id) AS vehicle_count
-        FROM {RAW_TABLE}
-        WHERE snapshot_date = '{snapshot_date}'
-          AND marka IN (SELECT brand FROM brand_whitelist)
-        GROUP BY marka
-    ),
-    prev_counts AS (
-        SELECT
-            marka AS brand,
-            COUNT(DISTINCT id) AS vehicle_count
-        FROM {RAW_TABLE}
-        WHERE snapshot_date = (SELECT prev_snapshot_date FROM prev_snapshot)
-          AND marka IN (SELECT brand FROM brand_whitelist)
-        GROUP BY marka
+        """
     )
-    SELECT
-        bw.brand,
-        '{snapshot_date}' AS snapshot_date,
-        COALESCE(cc.vehicle_count, 0) AS vehicle_count,
-        CASE
-            WHEN (SELECT prev_snapshot_date FROM prev_snapshot) IS NULL THEN NULL
-            ELSE COALESCE(cc.vehicle_count, 0) - COALESCE(pc.vehicle_count, 0)
-        END AS mom_delta_abs,
-        CASE
-            WHEN (SELECT prev_snapshot_date FROM prev_snapshot) IS NULL THEN NULL
-            WHEN COALESCE(pc.vehicle_count, 0) = 0 THEN NULL
-            ELSE ((COALESCE(cc.vehicle_count, 0) - pc.vehicle_count) * 100.0 / pc.vehicle_count)
-        END AS mom_delta_pct
-    FROM brand_whitelist bw
-    LEFT JOIN current_counts cc ON cc.brand = bw.brand
-    LEFT JOIN prev_counts pc ON pc.brand = bw.brand
-    """
+    rows = get_query_rows(qid)
+    if not rows or not rows[0].get("prev_snapshot_date"):
+        return ""
+    return rows[0]["prev_snapshot_date"]
+
+
+def get_brand_counts(snapshot_date: str, target_month: str) -> dict:
+    year, month = target_month.split("-")
+    brands_values = ",\n            ".join(f"('{brand}')" for brand in TRACKED_BRANDS)
+
+    qid = run_athena(
+        f"""
+        WITH brand_whitelist AS (
+            SELECT * FROM (
+                VALUES
+                {brands_values}
+            ) AS t(brand)
+        ),
+        counts AS (
+            SELECT
+                marka AS brand,
+                COUNT(DISTINCT id) AS vehicle_count
+            FROM {RAW_TABLE}
+            WHERE snapshot_date = '{snapshot_date}'
+              AND year = '{year}'
+              AND month = '{month}'
+              AND marka IN (SELECT brand FROM brand_whitelist)
+            GROUP BY marka
+        )
+        SELECT
+            bw.brand,
+            COALESCE(c.vehicle_count, 0) AS vehicle_count
+        FROM brand_whitelist bw
+        LEFT JOIN counts c ON c.brand = bw.brand
+        """
+    )
+
+    rows = get_query_rows(qid)
+    out = {brand: 0 for brand in TRACKED_BRANDS}
+    for row in rows:
+        brand = row.get("brand")
+        count = int(row.get("vehicle_count") or 0)
+        if brand in out:
+            out[brand] = count
+    return out
+
+
+def compute_payload(snapshot_date: str) -> tuple[list[dict], dict]:
+    snapshot_month = snapshot_date[:7]
+    current_reg_month = month_shift(snapshot_month, -1)
+    prev_reg_month = month_shift(snapshot_month, -2)
+
+    prev_snapshot_date = get_prev_snapshot(snapshot_date)
+    if not prev_snapshot_date:
+        raise ValueError(f"No previous snapshot found for snapshot_date={snapshot_date}")
+
+    current_counts = get_brand_counts(snapshot_date, current_reg_month)
+    prev_counts = get_brand_counts(prev_snapshot_date, prev_reg_month)
+
+    rows = []
+    for brand in TRACKED_BRANDS:
+        current = current_counts.get(brand, 0)
+        previous = prev_counts.get(brand, 0)
+        delta_abs = current - previous
+        delta_pct = None if previous == 0 else (delta_abs * 100.0 / previous)
+
+        rows.append(
+            {
+                "brand": brand,
+                "snapshot_date": snapshot_date,
+                "previous_snapshot_date": prev_snapshot_date,
+                "current_reg_month": current_reg_month,
+                "previous_reg_month": prev_reg_month,
+                "vehicle_count": current,
+                "prev_vehicle_count": previous,
+                "mom_delta_abs": delta_abs,
+                "mom_delta_pct": delta_pct,
+            }
+        )
+
+    summary = {
+        "snapshot_date": snapshot_date,
+        "previous_snapshot_date": prev_snapshot_date,
+        "current_reg_month": current_reg_month,
+        "previous_reg_month": prev_reg_month,
+    }
+    return rows, summary
+
+
+def save_to_dynamodb(rows: list[dict]) -> None:
+    table = dynamodb.Table(DDB_TABLE)
+    with table.batch_writer(overwrite_by_pkeys=["snapshot_date", "brand"]) as batch:
+        for row in rows:
+            item = {
+                "snapshot_date": row["snapshot_date"],
+                "brand": row["brand"],
+                "previous_snapshot_date": row["previous_snapshot_date"],
+                "current_reg_month": row["current_reg_month"],
+                "previous_reg_month": row["previous_reg_month"],
+                "vehicle_count": row["vehicle_count"],
+                "prev_vehicle_count": row["prev_vehicle_count"],
+                "mom_delta_abs": row["mom_delta_abs"],
+                "updated_at": int(time.time()),
+            }
+            if row["mom_delta_pct"] is not None:
+                item["mom_delta_pct"] = Decimal(str(round(row["mom_delta_pct"], 4)))
+            batch.put_item(Item=item)
 
 
 def build_top_brand_mom(snapshot_date: str) -> dict:
     if not snapshot_date:
         raise ValueError("snapshot_date is required")
 
-    if not table_exists():
-        create_sql = f"""
-        CREATE TABLE {TOP_BRAND_MOM_TABLE}
-        WITH (
-            format = 'PARQUET'
-        ) AS
-        {select_rows_sql(snapshot_date)}
-        """
-        try:
-            run_athena(create_sql)
-            return {
-                "status": "CREATED_AND_INSERTED",
-                "snapshot_date": snapshot_date,
-                "table": TOP_BRAND_MOM_TABLE,
-                "brands_count": len(TRACKED_BRANDS),
-            }
-        except RuntimeError as exc:
-            # Race condition between SHOW TABLES check and CTAS execution.
-            # If another run created the table first, continue with normal INSERT path.
-            if "TABLE_ALREADY_EXISTS" not in str(exc):
-                raise
-            logger.warning(
-                "CTAS reported TABLE_ALREADY_EXISTS for '%s'. "
-                "Treating table as pre-existing and continuing.",
-                TOP_BRAND_MOM_TABLE,
-            )
-
-    if snapshot_already_processed(snapshot_date):
-        return {
-            "status": "SKIPPED_ALREADY_EXISTS",
-            "snapshot_date": snapshot_date,
-            "table": TOP_BRAND_MOM_TABLE,
-        }
-
-    insert_sql = f"""
-    INSERT INTO {TOP_BRAND_MOM_TABLE}
-    {select_rows_sql(snapshot_date)}
-    """
-    run_athena(insert_sql)
+    rows, summary = compute_payload(snapshot_date)
+    save_to_dynamodb(rows)
 
     return {
-        "status": "INSERTED",
-        "snapshot_date": snapshot_date,
-        "table": TOP_BRAND_MOM_TABLE,
-        "brands_count": len(TRACKED_BRANDS),
+        "status": "UPSERTED_TO_DDB",
+        "snapshot_date": summary["snapshot_date"],
+        "previous_snapshot_date": summary["previous_snapshot_date"],
+        "current_reg_month": summary["current_reg_month"],
+        "previous_reg_month": summary["previous_reg_month"],
+        "rows_written": len(rows),
+        "ddb_table": DDB_TABLE,
     }
 
 
@@ -232,7 +270,7 @@ def lambda_handler(event, context):
 def main() -> int:
     snapshot_date = os.getenv("SNAPSHOT_DATE", "").strip()
     result = build_top_brand_mom(snapshot_date)
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps(result, ensure_ascii=False, default=str))
     return 0
 
 
