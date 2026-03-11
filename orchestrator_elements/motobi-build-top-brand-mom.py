@@ -10,8 +10,10 @@ DATABASE = "motobi_cepik_hist"
 RAW_TABLE = "raw_archive"
 TOP_BRAND_MOM_TABLE = "top_brand_mom_snapshot"
 
-# wymuszamy workgroup z Managed Results
-ATHENA_WORKGROUP = os.getenv("ATHENA_WORKGROUP", "primary")
+# Domyślnie używamy user-managed WG (obsługuje INSERT/CTAS dla tej lambdy).
+ATHENA_WORKGROUP = os.getenv("ATHENA_WORKGROUP", "motobi-etl")
+# Fallback na wypadek uruchomienia z WG z Managed Results.
+ATHENA_FALLBACK_WORKGROUP = os.getenv("ATHENA_FALLBACK_WORKGROUP", "motobi-etl")
 
 POLL_INTERVAL_SEC = float(os.getenv("ATHENA_POLL_INTERVAL_SEC", "2"))
 ATHENA_TIMEOUT_SEC = int(os.getenv("ATHENA_TIMEOUT_SEC", "3600"))
@@ -61,13 +63,37 @@ def wait_for_query(qid: str, timeout_sec: int = ATHENA_TIMEOUT_SEC) -> str:
         time.sleep(POLL_INTERVAL_SEC)
 
 
-def run_athena(sql: str) -> str:
-    logger.info(f"Running Athena query on workgroup='{ATHENA_WORKGROUP}':\n{sql}")
-    q = athena.start_query_execution(
+def _start_query(sql: str, workgroup: str):
+    return athena.start_query_execution(
         QueryString=sql,
         QueryExecutionContext={"Database": DATABASE},
-        WorkGroup=ATHENA_WORKGROUP,
+        WorkGroup=workgroup,
     )
+
+
+def run_athena(sql: str) -> str:
+    workgroup = ATHENA_WORKGROUP
+    logger.info(f"Running Athena query on workgroup='{workgroup}':\n{sql}")
+
+    try:
+        q = _start_query(sql, workgroup)
+    except athena.exceptions.InvalidRequestException as exc:
+        msg = str(exc)
+        managed_results_error = "not supported for workgroups with Managed Query Results enabled"
+        should_retry = managed_results_error in msg and ATHENA_FALLBACK_WORKGROUP != workgroup
+
+        if not should_retry:
+            raise
+
+        fallback_workgroup = ATHENA_FALLBACK_WORKGROUP
+        logger.warning(
+            "Athena rejected query for workgroup='%s' due to Managed Results restrictions. "
+            "Retrying on fallback workgroup='%s'.",
+            workgroup,
+            fallback_workgroup,
+        )
+        q = _start_query(sql, fallback_workgroup)
+
     qid = q["QueryExecutionId"]
     wait_for_query(qid)
     logger.info(f"Athena query succeeded, qid={qid}")
