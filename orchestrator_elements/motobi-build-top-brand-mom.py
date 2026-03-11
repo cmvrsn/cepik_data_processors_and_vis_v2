@@ -184,13 +184,24 @@ def build_top_brand_mom(snapshot_date: str) -> dict:
         ) AS
         {select_rows_sql(snapshot_date)}
         """
-        run_athena(create_sql)
-        return {
-            "status": "CREATED_AND_INSERTED",
-            "snapshot_date": snapshot_date,
-            "table": TOP_BRAND_MOM_TABLE,
-            "brands_count": len(TRACKED_BRANDS),
-        }
+        try:
+            run_athena(create_sql)
+            return {
+                "status": "CREATED_AND_INSERTED",
+                "snapshot_date": snapshot_date,
+                "table": TOP_BRAND_MOM_TABLE,
+                "brands_count": len(TRACKED_BRANDS),
+            }
+        except RuntimeError as exc:
+            # Race condition between SHOW TABLES check and CTAS execution.
+            # If another run created the table first, continue with normal INSERT path.
+            if "TABLE_ALREADY_EXISTS" not in str(exc):
+                raise
+            logger.warning(
+                "CTAS reported TABLE_ALREADY_EXISTS for '%s'. "
+                "Treating table as pre-existing and continuing.",
+                TOP_BRAND_MOM_TABLE,
+            )
 
     if snapshot_already_processed(snapshot_date):
         return {
