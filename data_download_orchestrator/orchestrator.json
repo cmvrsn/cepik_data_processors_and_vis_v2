@@ -71,6 +71,19 @@
         }
       },
       "ResultPath": null,
+      "Next": "Validate Snapshot Completeness"
+    },
+    "Validate Snapshot Completeness": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:eu-north-1:976193233554:function:motobi-validate-snapshot-completeness",
+        "Payload": {
+          "snapshot_date.$": "$.snapshot_date",
+          "s3_bucket.$": "$.s3_bucket"
+        }
+      },
+      "ResultPath": null,
       "Next": "Clear RAW Partitions (Workaround)"
     },
     "Clear RAW Partitions (Workaround)": {

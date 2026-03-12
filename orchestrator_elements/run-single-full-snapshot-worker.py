@@ -576,11 +576,27 @@ def main():
     s3.put_object(Bucket=BUCKET, Key=report_key, Body=excel_buffer.getvalue())
     logging.info(f"report_xlsx s3://{BUCKET}/{report_key}")
 
+    missed_pages_count = len(all_missed)
+    completeness_key = f"reports/completeness-{SNAPSHOT_DATE}.json"
+    completeness_doc = {
+        "snapshot_date": SNAPSHOT_DATE,
+        "status": "INCOMPLETE" if missed_pages_count > 0 else "COMPLETE",
+        "missed_pages_count": missed_pages_count,
+        "report_key": report_key,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+    s3.put_object(
+        Bucket=BUCKET,
+        Key=completeness_key,
+        Body=json.dumps(completeness_doc, ensure_ascii=False).encode("utf-8"),
+        ContentType="application/json",
+    )
+    logging.info(f"completeness_json s3://{BUCKET}/{completeness_key} -> {completeness_doc['status']}")
+
     if all_missed:
-        logging.warning(f"missed_pages_count={len(all_missed)} (zapisane w arkuszu 'missed_pages')")
+        logging.warning(f"missed_pages_count={missed_pages_count} (zapisane w arkuszu 'missed_pages')")
     else:
         logging.info("missed_pages=0")
-
 
     logging.info("done=1 status=success")
 
