@@ -18,6 +18,7 @@ ATHENA_WORKGROUP = os.getenv("ATHENA_WORKGROUP", "motobi-etl")
 ATHENA_FALLBACK_WORKGROUP = os.getenv("ATHENA_FALLBACK_WORKGROUP", "motobi-etl")
 
 DDB_TABLE = os.getenv("TOP_BRAND_MOM_DDB_TABLE", "motobi_top_brand_mom")
+TOP_BRAND_REPLACE_MODE = os.getenv("TOP_BRAND_REPLACE_MODE", "true").strip().lower() in {"1", "true", "yes"}
 
 POLL_INTERVAL_SEC = float(os.getenv("ATHENA_POLL_INTERVAL_SEC", "2"))
 ATHENA_TIMEOUT_SEC = int(os.getenv("ATHENA_TIMEOUT_SEC", "3600"))
@@ -231,6 +232,10 @@ def compute_payload(snapshot_date: str) -> tuple[list[dict], dict]:
 
 def save_to_dynamodb(rows: list[dict]) -> None:
     table = dynamodb.Table(DDB_TABLE)
+
+    if TOP_BRAND_REPLACE_MODE:
+        _replace_table_content(table)
+
     with table.batch_writer(overwrite_by_pkeys=["snapshot_date", "brand"]) as batch:
         for row in rows:
             item = {
@@ -247,6 +252,33 @@ def save_to_dynamodb(rows: list[dict]) -> None:
             if row["mom_delta_pct"] is not None:
                 item["mom_delta_pct"] = Decimal(str(round(row["mom_delta_pct"], 4)))
             batch.put_item(Item=item)
+
+
+def _replace_table_content(table) -> None:
+    key_schema = table.key_schema
+    key_names = [x["AttributeName"] for x in key_schema]
+    projection = ", ".join(key_names)
+
+    scan_kwargs = {"ProjectionExpression": projection}
+    deleted = 0
+
+    while True:
+        response = table.scan(**scan_kwargs)
+        items = response.get("Items", [])
+
+        if items:
+            with table.batch_writer() as batch:
+                for item in items:
+                    key = {k: item[k] for k in key_names}
+                    batch.delete_item(Key=key)
+                    deleted += 1
+
+        last_key = response.get("LastEvaluatedKey")
+        if not last_key:
+            break
+        scan_kwargs["ExclusiveStartKey"] = last_key
+
+    logger.info("Top Brand MoM replace mode: deleted %s existing DDB items before write", deleted)
 
 
 def build_top_brand_mom(snapshot_date: str) -> dict:
