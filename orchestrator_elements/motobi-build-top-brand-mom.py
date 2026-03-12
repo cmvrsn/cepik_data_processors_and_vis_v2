@@ -22,6 +22,9 @@ DDB_TABLE = os.getenv("TOP_BRAND_MOM_DDB_TABLE", "motobi_top_brand_mom")
 POLL_INTERVAL_SEC = float(os.getenv("ATHENA_POLL_INTERVAL_SEC", "2"))
 ATHENA_TIMEOUT_SEC = int(os.getenv("ATHENA_TIMEOUT_SEC", "3600"))
 
+TARGET_VEHICLE_ORIGIN = "UŻYW. ZAKUPIONY W KRAJU"
+TARGET_VEHICLE_TYPE = "SAMOCHÓD OSOBOWY"
+
 TRACKED_BRANDS = [
     "VOLKSWAGEN",
     "OPEL",
@@ -161,6 +164,8 @@ def get_brand_counts(snapshot_date: str, target_month: str) -> dict:
             WHERE snapshot_date = '{snapshot_date}'
               AND year = {year}
               AND month = '{month}'
+              AND "pochodzenie-pojazdu" = '{TARGET_VEHICLE_ORIGIN}'
+              AND "rodzaj-pojazdu" = '{TARGET_VEHICLE_TYPE}'
               AND marka IN (SELECT brand FROM brand_whitelist)
             GROUP BY marka
         )
