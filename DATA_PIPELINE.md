@@ -95,7 +95,8 @@ Orkiestracja jest liniowa (bez gałęzi równoległych) i kończy się krokiem `
   - bieżąca wartość = liczba aut marki w **bieżącym snapshotcie** dla miesiąca rejestracji `snapshot_month - 1`,
   - wartość porównawcza = liczba aut marki w **poprzednim snapshotcie** dla miesiąca `snapshot_month - 2`.
 - Wykorzystuje `raw_archive` jako źródło historyczne.
-- Zapisuje wynik (upsert) do DynamoDB (`TOP_BRAND_MOM_DDB_TABLE`, domyślnie `motobi_top_brand_mom`) z kluczem:
+- Domyślnie działa w trybie replace: czyści istniejące rekordy w tabeli DDB i zapisuje nowy zestaw wyników z bieżącego runu.
+- Zapisuje wynik do DynamoDB (`TOP_BRAND_MOM_DDB_TABLE`, domyślnie `motobi_top_brand_mom`) z kluczem:
   - `PK: snapshot_date`
   - `SK: brand`
 - Obsługuje fallback workgroup Athena (`ATHENA_WORKGROUP` + `ATHENA_FALLBACK_WORKGROUP`) przy błędach Managed Results.
@@ -134,7 +135,7 @@ Orkiestracja jest liniowa (bez gałęzi równoległych) i kończy się krokiem `
 - Jest twardy gate kompletności snapshotu (`Validate Snapshot Completeness`) i fail przy brakach stron.
 - Krytyczne warstwy `latest`, `prod-data/latest` i `dim/brand` są odświeżane atomowo przez full replace.
 - Trend ma idempotencję na poziomie `snapshot_month`.
-- Top Brand MoM ma upsert do DDB i fallback workgroup Athena.
+- Top Brand MoM działa w trybie replace (pełna podmiana danych DDB na wynik bieżącego runu) i ma fallback workgroup Athena.
 
 ### Co ogranicza „pełną” gotowość
 - Brak globalnych `Retry/Catch` na poziomie Step Functions (awarie transientne kończą cały run bez automatycznej polityki retry).
@@ -215,6 +216,7 @@ Orkiestracja jest liniowa (bez gałęzi równoległych) i kończy się krokiem `
 - `ATHENA_WORKGROUP` (default: `motobi-etl`)
 - `ATHENA_FALLBACK_WORKGROUP` (default: `motobi-etl`)
 - `TOP_BRAND_MOM_DDB_TABLE` (default: `motobi_top_brand_mom`)
+- `TOP_BRAND_REPLACE_MODE` (default: `true`, czyści tabelę przed zapisem nowego zestawu)
 - `ATHENA_POLL_INTERVAL_SEC`, `ATHENA_TIMEOUT_SEC`
 
 ### `motobi-notify`
