@@ -159,7 +159,7 @@ def get_brand_counts(snapshot_date: str, target_month: str) -> dict:
                 COUNT(DISTINCT id) AS vehicle_count
             FROM {RAW_TABLE}
             WHERE snapshot_date = '{snapshot_date}'
-              AND year = '{year}'
+              AND year = {year}
               AND month = '{month}'
               AND marka IN (SELECT brand FROM brand_whitelist)
             GROUP BY marka
