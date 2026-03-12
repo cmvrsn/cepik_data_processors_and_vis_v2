@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Optional but useful for TLS/cert handling and reproducible apt behavior
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY orchestrator_elements/requirements-worker.txt /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /app/requirements.txt
+
+COPY orchestrator_elements/run-single-full-snapshot-worker.py /app/run-single-full-snapshot-worker.py
+
+CMD ["python", "/app/run-single-full-snapshot-worker.py"]
